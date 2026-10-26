@@ -16,6 +16,7 @@ from frigate.config.classification import CustomClassificationConfig
 from frigate.const import CLIPS_DIR, MODEL_CACHE_DIR
 from frigate.log import suppress_stderr_during
 from frigate.util.builtin import EventsPerSecond, InferenceSpeed, load_labels
+from frigate.util.config import convert_area_to_pixels
 from frigate.util.file import trim_oldest_files
 from frigate.util.image import calculate_region
 from frigate.util.object import box_overlaps
@@ -535,6 +536,48 @@ class CustomObjectClassificationProcessor(DeferredRealtimeProcessorApi):
         )
         return best_label, avg_score
 
+    def _is_area_in_range(self, obj_data: dict[str, Any]) -> bool:
+        """Check the object's box area against the configured min/max area."""
+        object_config = self.model_config.object_config
+
+        if object_config is None or (
+            object_config.min_area is None and object_config.max_area is None
+        ):
+            return True
+
+        detect_config = self.config.cameras[obj_data["camera"]].detect
+        frame_shape = (detect_config.height, detect_config.width)
+        box = obj_data["box"]
+        box_area = (box[2] - box[0]) * (box[3] - box[1])
+
+        if object_config.min_area is not None:
+            min_area = convert_area_to_pixels(object_config.min_area, frame_shape)
+
+            if box_area < min_area:
+                logger.debug(
+                    "Skipping %s classification for %s, area %s is below min_area %s",
+                    self.model_config.name,
+                    obj_data["id"],
+                    box_area,
+                    min_area,
+                )
+                return False
+
+        if object_config.max_area is not None:
+            max_area = convert_area_to_pixels(object_config.max_area, frame_shape)
+
+            if box_area > max_area:
+                logger.debug(
+                    "Skipping %s classification for %s, area %s is above max_area %s",
+                    self.model_config.name,
+                    obj_data["id"],
+                    box_area,
+                    max_area,
+                )
+                return False
+
+        return True
+
     def process_frame(self, obj_data: dict[str, Any], frame: np.ndarray) -> None:
         if not self.model_config.name or not self.model_config.object_config:
             return
@@ -551,6 +594,9 @@ class CustomObjectClassificationProcessor(DeferredRealtimeProcessorApi):
             return
 
         if obj_data.get("end_time") is not None:
+            return
+
+        if not self._is_area_in_range(obj_data):
             return
 
         object_id = obj_data["id"]

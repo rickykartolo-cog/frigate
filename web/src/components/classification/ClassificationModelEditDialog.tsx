@@ -57,6 +57,8 @@ type ObjectFormData = {
   saveAttempts: number;
   objectLabel: string;
   objectType: ObjectClassificationType;
+  minArea?: number;
+  maxArea?: number;
 };
 
 type StateFormData = {
@@ -120,13 +122,37 @@ export default function ClassificationModelEditDialog({
     };
 
     if (isObjectModel) {
-      return z.object({
-        ...sharedFields,
-        objectLabel: z
-          .string()
-          .min(1, t("wizard.step1.errors.objectLabelRequired")),
-        objectType: z.enum(["sub_label", "attribute"]),
-      });
+      const areaField = z.preprocess(
+        (val) =>
+          val === "" || val === null || val === undefined ? undefined : val,
+        z.coerce
+          .number<number>({ message: t("edit.errors.areaInvalid") })
+          .refine(
+            (val) =>
+              Number.isInteger(val) ? val >= 0 : val >= 0.000001 && val <= 0.99,
+            { message: t("edit.errors.areaInvalid") },
+          )
+          .optional(),
+      );
+
+      return z
+        .object({
+          ...sharedFields,
+          objectLabel: z
+            .string()
+            .min(1, t("wizard.step1.errors.objectLabelRequired")),
+          objectType: z.enum(["sub_label", "attribute"]),
+          minArea: areaField,
+          maxArea: areaField,
+        })
+        .refine(
+          (data) =>
+            data.minArea === undefined ||
+            data.maxArea === undefined ||
+            Number.isInteger(data.minArea) !== Number.isInteger(data.maxArea) ||
+            data.minArea <= data.maxArea,
+          { message: t("edit.errors.areaRange"), path: ["maxArea"] },
+        );
     } else {
       // State model
       return z.object({
@@ -182,6 +208,8 @@ export default function ClassificationModelEditDialog({
           objectType:
             (model.object_config
               ?.classification_type as ObjectClassificationType) || "sub_label",
+          minArea: model.object_config?.min_area ?? undefined,
+          maxArea: model.object_config?.max_area ?? undefined,
         } as ObjectFormData)
       : ({
           enabled: model.enabled,
@@ -210,6 +238,8 @@ export default function ClassificationModelEditDialog({
           objectType:
             (model.object_config
               ?.classification_type as ObjectClassificationType) || "sub_label",
+          minArea: model.object_config?.min_area ?? undefined,
+          maxArea: model.object_config?.max_area ?? undefined,
         } as ObjectFormData);
       } else {
         form.reset({
@@ -303,6 +333,26 @@ export default function ClassificationModelEditDialog({
           // object model save
           const objectData = data as ObjectFormData;
 
+          const objectConfig: {
+            objects: string[];
+            classification_type: ObjectClassificationType;
+            min_area?: number | null;
+            max_area?: number | null;
+          } = {
+            objects: [objectData.objectLabel],
+            classification_type: objectData.objectType,
+          };
+          if (objectData.minArea != null) {
+            objectConfig.min_area = objectData.minArea;
+          } else if (model.object_config?.min_area != null) {
+            objectConfig.min_area = null;
+          }
+          if (objectData.maxArea != null) {
+            objectConfig.max_area = objectData.maxArea;
+          } else if (model.object_config?.max_area != null) {
+            objectConfig.max_area = null;
+          }
+
           // Update the config
           await axios.put("/config/set", {
             requires_restart: 0,
@@ -315,10 +365,7 @@ export default function ClassificationModelEditDialog({
                     name: model.name,
                     threshold: model.threshold,
                     save_attempts: objectData.saveAttempts,
-                    object_config: {
-                      objects: [objectData.objectLabel],
-                      classification_type: objectData.objectType,
-                    },
+                    object_config: objectConfig,
                   },
                 },
               },
@@ -569,6 +616,62 @@ export default function ClassificationModelEditDialog({
                             </div>
                           </RadioGroup>
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={
+                      (form as ReturnType<typeof useForm<ObjectFormData>>)
+                        .control
+                    }
+                    name="minArea"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-primary-variant">
+                          {t("edit.minArea")}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            className="h-8"
+                            inputMode="decimal"
+                            placeholder={t("edit.areaPlaceholder")}
+                            {...field}
+                            value={field.value ?? ""}
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          {t("edit.minAreaDesc")}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={
+                      (form as ReturnType<typeof useForm<ObjectFormData>>)
+                        .control
+                    }
+                    name="maxArea"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-primary-variant">
+                          {t("edit.maxArea")}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            className="h-8"
+                            inputMode="decimal"
+                            placeholder={t("edit.areaPlaceholder")}
+                            {...field}
+                            value={field.value ?? ""}
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          {t("edit.maxAreaDesc")}
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
