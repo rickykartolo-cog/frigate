@@ -1216,6 +1216,14 @@
         "classification_type": {
           "label": "Classification type",
           "description": "Classification type applied: 'sub_label' (adds sub_label) or other supported types."
+        },
+        "min_area": {
+          "label": "Minimum object area",
+          "description": "Minimum bounding box area (pixels or percentage of the detect frame) required to run classification. Smaller objects are still detected and tracked but are not classified. Can be pixels (int) or percentage (float between 0.000001 and 0.99)."
+        },
+        "max_area": {
+          "label": "Maximum object area",
+          "description": "Maximum bounding box area (pixels or percentage of the detect frame) allowed to run classification. Larger objects are still detected and tracked but are not classified. Can be pixels (int) or percentage (float between 0.000001 and 0.99)."
         }
       },
       "state_config": {

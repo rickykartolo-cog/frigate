@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .base import FrigateBaseModel
 
@@ -155,6 +155,39 @@ class CustomClassificationObjectConfig(FrigateBaseModel):
         title="Classification type",
         description="Classification type applied: 'sub_label' (adds sub_label) or other supported types.",
     )
+    min_area: int | float | None = Field(
+        default=None,
+        title="Minimum object area",
+        description="Minimum bounding box area (pixels or percentage of the detect frame) required to run classification. Smaller objects are still detected and tracked but are not classified. Can be pixels (int) or percentage (float between 0.000001 and 0.99).",
+    )
+    max_area: int | float | None = Field(
+        default=None,
+        title="Maximum object area",
+        description="Maximum bounding box area (pixels or percentage of the detect frame) allowed to run classification. Larger objects are still detected and tracked but are not classified. Can be pixels (int) or percentage (float between 0.000001 and 0.99).",
+    )
+
+    @field_validator("min_area", "max_area")
+    @classmethod
+    def validate_area(cls, v: int | float | None) -> int | float | None:
+        if isinstance(v, float) and not 0.000001 <= v <= 0.99:
+            raise ValueError(f"Percentage must be between 0.000001 and 0.99, got {v}")
+
+        if isinstance(v, int) and v < 0:
+            raise ValueError(f"Area must be a positive number of pixels, got {v}")
+
+        return v
+
+    @model_validator(mode="after")
+    def validate_area_range(self) -> "CustomClassificationObjectConfig":
+        if (
+            self.min_area is not None
+            and self.max_area is not None
+            and type(self.min_area) is type(self.max_area)
+            and self.min_area > self.max_area
+        ):
+            raise ValueError("min_area must be less than or equal to max_area")
+
+        return self
 
 
 class CustomClassificationConfig(FrigateBaseModel):

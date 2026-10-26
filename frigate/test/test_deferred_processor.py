@@ -7,7 +7,12 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from pydantic import ValidationError
 
+from frigate.config.classification import (
+    CustomClassificationConfig,
+    CustomClassificationObjectConfig,
+)
 from frigate.data_processing.real_time.api import DeferredRealtimeProcessorApi
 
 # Mock TFLite before importing classification module
@@ -148,6 +153,8 @@ class TestCustomObjectClassificationDeferred(unittest.TestCase):
         model_config.threshold = 0.5
         model_config.save_attempts = 10
         model_config.object_config.classification_type = "sub_label"
+        model_config.object_config.min_area = None
+        model_config.object_config.max_area = None
         publisher = MagicMock()
         requestor = MagicMock()
         metrics = MagicMock()
@@ -205,6 +212,106 @@ class TestCustomObjectClassificationDeferred(unittest.TestCase):
         time.sleep(0.1)
         results = proc.drain_results()
         self.assertEqual(len(results), 0)
+
+
+class TestCustomObjectClassificationArea(unittest.TestCase):
+    """Test min_area / max_area gating for object classification."""
+
+    def _make_processor(
+        self,
+        min_area: int | float | None = None,
+        max_area: int | float | None = None,
+    ):
+        config = MagicMock()
+        config.cameras = {"front": MagicMock()}
+        config.cameras["front"].detect.width = 100
+        config.cameras["front"].detect.height = 100
+        model_config = CustomClassificationConfig(
+            name="test_breed",
+            object_config=CustomClassificationObjectConfig(
+                objects=["dog"], min_area=min_area, max_area=max_area
+            ),
+        )
+        metrics = MagicMock()
+        metrics.classification_speeds = {}
+        metrics.classification_cps = {}
+
+        with patch.object(
+            CustomObjectClassificationProcessor,
+            "_CustomObjectClassificationProcessor__build_detector",
+        ):
+            proc = CustomObjectClassificationProcessor(
+                config, model_config, MagicMock(), MagicMock(), metrics
+            )
+        proc._enqueue_task = MagicMock()
+        return proc
+
+    def _process(self, proc, box: list[int]) -> bool:
+        frame = np.zeros((150, 100), dtype=np.uint8)
+        obj_data = {
+            "id": "obj1",
+            "label": "dog",
+            "false_positive": False,
+            "end_time": None,
+            "box": box,
+            "camera": "front",
+        }
+        proc.process_frame(obj_data, frame)
+        return proc._enqueue_task.called
+
+    def test_no_area_limits_classifies(self):
+        proc = self._make_processor()
+        self.assertTrue(self._process(proc, [10, 10, 15, 15]))
+
+    def test_below_min_area_pixels_skipped(self):
+        proc = self._make_processor(min_area=400)
+        self.assertFalse(self._process(proc, [10, 10, 25, 25]))
+        self.assertTrue(self._process(proc, [10, 10, 30, 30]))
+
+    def test_above_max_area_pixels_skipped(self):
+        proc = self._make_processor(max_area=400)
+        self.assertFalse(self._process(proc, [10, 10, 40, 40]))
+        self.assertTrue(self._process(proc, [10, 10, 30, 30]))
+
+    def test_min_area_percentage(self):
+        # 5% of a 100x100 detect frame is 500 pixels
+        proc = self._make_processor(min_area=0.05)
+        self.assertFalse(self._process(proc, [10, 10, 30, 30]))
+        self.assertTrue(self._process(proc, [10, 10, 40, 40]))
+
+    def test_skipped_object_does_not_add_history(self):
+        proc = self._make_processor(min_area=400)
+        self._process(proc, [10, 10, 15, 15])
+        self.assertNotIn("obj1", proc.classification_history)
+
+
+class TestCustomClassificationObjectConfigArea(unittest.TestCase):
+    def test_defaults_are_none(self):
+        cfg = CustomClassificationObjectConfig(objects=["dog"])
+        self.assertIsNone(cfg.min_area)
+        self.assertIsNone(cfg.max_area)
+
+    def test_types_preserved(self):
+        cfg = CustomClassificationObjectConfig(
+            objects=["dog"], min_area=1000, max_area=0.5
+        )
+        self.assertEqual(cfg.min_area, 1000)
+        self.assertIsInstance(cfg.min_area, int)
+        self.assertEqual(cfg.max_area, 0.5)
+
+    def test_invalid_percentage_rejected(self):
+        with self.assertRaises(ValidationError):
+            CustomClassificationObjectConfig(objects=["dog"], min_area=1.5)
+
+    def test_negative_pixels_rejected(self):
+        with self.assertRaises(ValidationError):
+            CustomClassificationObjectConfig(objects=["dog"], min_area=-1)
+
+    def test_min_greater_than_max_rejected(self):
+        with self.assertRaises(ValidationError):
+            CustomClassificationObjectConfig(
+                objects=["dog"], min_area=5000, max_area=1000
+            )
 
 
 if __name__ == "__main__":

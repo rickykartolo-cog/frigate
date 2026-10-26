@@ -877,6 +877,14 @@ classification:
         objects: [dog]
         # Optional: Type of classification that is applied (default: shown below)
         classification_type: sub_label
+        # Optional: Minimum bounding box area required to run classification (default: none)
+        # Smaller objects are still detected and tracked, but are not classified.
+        # Can be specified as pixels (int) or as a percentage of the detect frame (float between 0.000001 and 0.99)
+        min_area: 2500
+        # Optional: Maximum bounding box area allowed to run classification (default: none)
+        # Larger objects are still detected and tracked, but are not classified.
+        # Can be specified as pixels (int) or as a percentage of the detect frame (float between 0.000001 and 0.99)
+        max_area: 100000
       # Optional: State classification configuration
       state_config:
         # Required: Cameras to run classification on

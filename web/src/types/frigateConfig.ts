@@ -386,6 +386,8 @@ export type CustomClassificationModelConfig = {
   object_config?: {
     objects: string[];
     classification_type: string;
+    min_area?: number | null;
+    max_area?: number | null;
   };
   state_config?: {
     cameras: {

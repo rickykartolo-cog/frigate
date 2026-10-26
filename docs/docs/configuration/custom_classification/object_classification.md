@@ -112,6 +112,24 @@ classification:
 
 An optional config, `save_attempts`, can be set as a key under the model name. This defines the number of classification attempts to save in the Recent Classifications tab. For object classification models, the default is 200.
 
+### Limiting classification by object size
+
+Small or distant objects often produce low-resolution crops that are hard to classify reliably. `min_area` and `max_area` can be set under `object_config` to only run classification when the object's bounding box is within a size range. Unlike `objects.filters.<label>.min_area`, this does not affect detection: objects outside the range are still detected and tracked as normal, they are just not classified (and do not count toward the classification history) until their bounding box is within the range.
+
+Both values can be specified in pixels (int) or as a percentage of the camera's detect frame (float between 0.000001 and 0.99).
+
+```yaml
+classification:
+  custom:
+    dog:
+      threshold: 0.8
+      object_config:
+        objects: [dog]
+        classification_type: sub_label
+        min_area: 10000 # skip classification for boxes smaller than ~100x100 pixels
+        max_area: 0.5 # skip classification for boxes larger than 50% of the frame
+```
+
 </TabItem>
 </ConfigTabs>
 
@@ -149,7 +167,7 @@ For more detail, see [Frigate Tip: Best Practices for Training Face and Custom C
 - **The wizard is just the starting point**: You don't need to find and label every class upfront. Missing classes will naturally appear in Recent Classifications, and those images tend to be more valuable because they represent new conditions and edge cases.
 - **Problem framing**: Keep classes visually distinct and relevant to the chosen object types.
 - **Preprocessing**: Ensure examples reflect object crops similar to Frigate's boxes; keep the subject centered.
-- **Crop size**: Aim for crops of at least 100×100 pixels (a 10,000 pixel area). Crops smaller than ~80×80 get stretched 3-7× by the model's 224×224 input resize and tend to collapse into a generic "blob" region of feature space where identity becomes unreliable. If most of your detections are small because the camera is far from the subject, consider repositioning the camera for closer crops.
+- **Crop size**: Aim for crops of at least 100×100 pixels (a 10,000 pixel area). Crops smaller than ~80×80 get stretched 3-7× by the model's 224×224 input resize and tend to collapse into a generic "blob" region of feature space where identity becomes unreliable. If most of your detections are small because the camera is far from the subject, consider repositioning the camera for closer crops. You can also set `min_area` in `object_config` to [skip classification for small objects](#limiting-classification-by-object-size) while still detecting and tracking them.
 - **Class balance**: Aim to keep your largest class within ~3× the count of your smallest. Beyond that, the model becomes biased toward the dominant class and tends to default borderline predictions to it (the "everything looks like Buddy" failure mode).
 - **Threshold**: Tune `threshold` per model to reduce false assignments. Start at `0.8` and adjust based on validation.
 
